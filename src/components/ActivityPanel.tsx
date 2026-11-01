@@ -9,6 +9,7 @@ import { MemoryPanel } from './MemoryPanel'
 import {
   Panel,
   type PanelResize,
+  type PanelSurface,
   PanelBody,
   PanelClose,
   PanelHeader,
@@ -60,7 +61,7 @@ export function ActivityPanel({
   canvasId: string
   onClose: () => void
   /* 'inline' when the panel is filling a mobile Sheet rather than floating */
-  surface?: 'floating' | 'inline'
+  surface?: PanelSurface
   className?: string
   /** carries `right` while floating — the panel always hugs the right edge */
   style?: CSSProperties
@@ -85,6 +86,7 @@ export function ActivityPanel({
       resize={resize}
       className={cn(
         surface === 'floating' && 'top-2.5 bottom-3.5 w-[280px] transition-[right] duration-150',
+        surface === 'docked' && 'w-[280px] border-l',
         className,
       )}
       style={style}

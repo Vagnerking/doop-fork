@@ -41,7 +41,7 @@ const panes: Record<Pane, { title: string; blurb: string }> = {
   account: { title: 'Your account', blurb: 'Who you are on every canvas — and how you get back into this one.' },
   appearance: {
     title: 'Appearance',
-    blurb: 'How Doop looks in this browser: light, dark, or whatever your system is.',
+    blurb: 'How Doop looks in this browser: the theme, and how the canvas editor lays out its panels.',
   },
 }
 

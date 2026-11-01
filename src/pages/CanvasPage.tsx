@@ -99,6 +99,7 @@ import { RULER_PX } from '../components/Rulers'
 import { NO_CANVAS, onViewCommand, syncViewMenu } from '../lib/viewMenu'
 import { AGENTS_MIN, LAYERS_MIN, fitPanelWidths } from '../lib/panelWidths'
 import { NO_INSETS, type StageInsets } from '../lib/viewFit'
+import { usePanelLayout } from '../lib/panelLayout'
 
 /* The floating chrome's geometry, in px from the canvas area's edges. The
    panels sit 14px in from the edge; on the right the resizable Agents panel
@@ -107,11 +108,18 @@ import { NO_INSETS, type StageInsets } from '../lib/viewFit'
    panel, or its collapsed 40px island. --chrome-left/--chrome-right
    mark where the open canvas begins and ends, for the zoom pill and toasts.
    With rulers on, the chrome layer starts RULER_PX further in on the top
-   and left; --chrome-top and --rail-left include that, these offsets do not. */
+   and left; --chrome-top and --rail-left include that, these offsets do not.
+   Docked (Settings → Appearance → Canvas panels), the same pieces are
+   columns flush with each other and the window's edges, and the stage
+   itself fills the gap between them, rulers and all. */
 const EDGE = 14
 const LAYERS_W = 264
 const RAIL_W = 40
 const INSPECTOR_W = 244
+/* the bar's height on desktop */
+const BAR_H = 50
+/* how far what floats over the canvas keeps from a docked column */
+const FLOAT_GAP = 10
 const AGENTS_W = 280
 const PANEL_WIDTH_KEY = 'doop:canvas-panel-widths'
 
@@ -136,13 +144,21 @@ function chromeLayout({
   agentsOpen,
   layersWidth,
   agentsWidth,
+  docked,
 }: {
   layersOpen: boolean
   propertiesShown: boolean
   agentsOpen: boolean
   layersWidth: number
   agentsWidth: number
+  docked: boolean
 }) {
+  if (docked) {
+    const toolRail = layersOpen ? layersWidth : RAIL_W
+    const properties = agentsOpen ? agentsWidth : 0
+    const island = propertiesShown ? properties + INSPECTOR_W : properties
+    return { toolRail, properties, island, left: toolRail + RAIL_W, right: island + RAIL_W }
+  }
   const toolRail = layersOpen ? EDGE + layersWidth + 12 : EDGE + RAIL_W + 10
   const properties = agentsOpen ? EDGE + agentsWidth + 8 : EDGE
   const island = propertiesShown ? properties + INSPECTOR_W + 10 : agentsOpen ? EDGE + agentsWidth + 10 : EDGE
@@ -476,7 +492,12 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
   const rulers = useStore((s) => s.rulers)
   const chromeHidden = useStore((s) => s.uiHidden)
   const rulersShown = rulers && !chromeHidden && !isMobile
-  const rulerInset = rulersShown ? RULER_PX : 0
+  /* docked panels: the stage sits between the columns, under a solid bar */
+  const docked = usePanelLayout() === 'docked' && !isMobile
+  const panelSurface = docked ? 'docked' : 'floating'
+  /* docked, the rulers sit on the stage's own edges inside the columns, so
+     nothing steps in past them */
+  const rulerInset = rulersShown && !docked ? RULER_PX : 0
   const hasSelection = useStore((s) => s.selectedIds.length > 0)
 
   const fixedChrome = chromeLayout({
@@ -485,6 +506,7 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
     agentsOpen: showActivity,
     layersWidth: 0,
     agentsWidth: 0,
+    docked,
   })
   const panels = fitPanelWidths({
     saved: panelWidths,
@@ -495,7 +517,14 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
   })
   const layersWidth = panels.layers
   const agentsWidth = panels.agents
-  const chrome = chromeLayout({ layersOpen, propertiesShown, agentsOpen: showActivity, layersWidth, agentsWidth })
+  const chrome = chromeLayout({
+    layersOpen,
+    propertiesShown,
+    agentsOpen: showActivity,
+    layersWidth,
+    agentsWidth,
+    docked,
+  })
 
   /* the desktop shell's View menu: its toggles act here, and it mirrors
      their state; leaving the canvas disables its canvas items */
@@ -523,17 +552,23 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
   }, [rulers, uiHidden, hideUiActive, layersOpen, showActivity, hasSelection])
   useEffect(() => () => syncViewMenu(NO_CANVAS), [])
   const chromeVars = {
-    '--chrome-top': isMobile ? '0px' : `${50 + rulerInset}px`,
+    '--chrome-top': isMobile ? '0px' : `${BAR_H + rulerInset}px`,
     '--rail-left': `${chrome.toolRail + rulerInset}px`,
-    '--chrome-left': `${chrome.left}px`,
-    '--chrome-right': `${chrome.right}px`,
+    /* what floats over the canvas (the zoom pill, toasts) keeps clear of a
+       docked column's edge */
+    '--chrome-left': `${chrome.left + (docked ? FLOAT_GAP : 0)}px`,
+    '--chrome-right': `${chrome.right + (docked ? FLOAT_GAP : 0)}px`,
   } as CSSProperties
   /* what the bar and the floating chrome cover of the stage, which spans the
      whole window; phones open their panels as sheets over everything */
   const stageInsets: StageInsets =
-    isMobile || uiHidden
+    isMobile || uiHidden || docked
       ? NO_INSETS
-      : { top: 50 + rulerInset, right: chrome.right, bottom: 0, left: chrome.left + rulerInset }
+      : { top: BAR_H + rulerInset, right: chrome.right, bottom: 0, left: chrome.left + rulerInset }
+  /* docked, the stage is the gap between the bar and the columns; ⌘. gives
+     it the whole window back */
+  const stageBounds: StageInsets | undefined =
+    docked && !uiHidden ? { top: BAR_H, right: chrome.right, bottom: 0, left: chrome.left } : undefined
   const meFace = { name: me.name, color: presences[me.clientId]?.color ?? 'var(--brand)' }
 
   function openConnect() {
@@ -575,7 +610,7 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
       {/* with rulers on, the top ruler takes the window's top edge and the
           bar's pills float below it */}
       <TopBar
-        variant="canvas"
+        variant={docked ? 'docked' : 'canvas'}
         className={cn(uiHidden && 'hidden')}
         style={rulerInset ? { top: rulerInset, left: rulerInset } : undefined}
       >
@@ -608,7 +643,7 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
             )}
           </BarPill>
         </div>
-        <div className="absolute top-3.5 left-1/2 -translate-x-1/2 max-[1180px]:hidden">
+        <div className={cn('absolute left-1/2 -translate-x-1/2 max-[1180px]:hidden', docked ? 'top-[7px]' : 'top-3.5')}>
           <LivePresence me={meFace} others={others} onRenameSelf={() => setRenaming(true)} />
         </div>
         <div className="ml-auto flex flex-none items-center gap-2 max-md:hidden">
@@ -707,7 +742,7 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
           edge; the floating chrome gets its own layer that starts below the
           bar, so every panel offset stays measured from there */}
       <div className="absolute inset-0 overflow-hidden" style={chromeVars}>
-        <Stage onAddFrame={addFrame} insets={stageInsets} />
+        <Stage onAddFrame={addFrame} insets={stageInsets} bounds={stageBounds} docked={docked} />
         <div
           className={cn(
             'pointer-events-none absolute inset-x-0 bottom-0 top-[50px] max-md:top-14 max-xs:top-[100px]',
@@ -769,6 +804,7 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
             (layersOpen ? (
               <LayersPanel
                 onAddFrame={addFrame}
+                surface={panelSurface}
                 resize={{
                   label: 'Resize Layers panel',
                   edge: 'right',
@@ -782,7 +818,7 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
                 }}
               />
             ) : (
-              <LayersRailToggle />
+              <LayersRailToggle docked={docked} />
             ))}
           {isMobile && !showActivity && (
             <MobilePanelTabs
@@ -799,17 +835,19 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
               key={selectedFrame.id}
               frame={selectedFrame}
               selector={panelElement.selector}
+              surface={panelSurface}
               style={{ right: chrome.properties }}
             />
           )}
           {!isMobile && !readOnly && selectedFrame && inspectorOpen && !panelElement && !deferPanel && (
-            <Inspector frame={selectedFrame} style={{ right: chrome.properties }} />
+            <Inspector frame={selectedFrame} surface={panelSurface} style={{ right: chrome.properties }} />
           )}
           {!isMobile && showActivity && (
             <ActivityPanel
               canvasId={canvasId}
               onClose={() => setShowActivity(false)}
-              style={{ right: EDGE }}
+              surface={panelSurface}
+              style={{ right: docked ? 0 : EDGE }}
               resize={{
                 label: 'Resize Agents panel',
                 edge: 'left',
@@ -824,6 +862,7 @@ export function CanvasPage({ canvasId }: { canvasId: string }) {
           {!isMobile && (
             <SideRail
               style={{ right: chrome.island }}
+              docked={docked}
               agentsOpen={showActivity}
               onToggleAgents={() => setShowActivity((open) => !open)}
               inspectorOpen={propertiesShown}
